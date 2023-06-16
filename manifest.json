@@ -5,7 +5,7 @@
   "background_color": "#749D4E",
   "display": "standalone",
   "Scope": "",
-  "start_url": "/popme",
+  "start_url": "/hex-snake",
   "icons": [
     "./favicon.ico",
     {
