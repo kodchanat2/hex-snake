@@ -39,6 +39,10 @@ var currentTile = {
   i: 0,
   j: 0,
 }
+var tailTile = {
+  i: 0,
+  j: 0,
+}
 var itemTile = {
   i: 0,
   j: 0,
@@ -82,19 +86,6 @@ async function touch(e) {
   if (isBotEnabled) botMoveList = [];
   isBotEnabled = false;
   controller.touch(x, y);
-  // if (y < react.height - max_board * (ball_radius * 2 + ball_padding) * react.width / 100) return loading = false;
-  // var col = Math.floor(x / (react.width / 3));
-  // if (col > 2) col = 2;
-  // if (col < 0) col = 0;
-  // // console.log(col)
-  // colTrigger[col] = 1;
-  // if (board[col].length >= max_board) return loading = false;
-  // spawn_pool[0].set(state.MOVING, col, board[col].length);
-  // board[col].push(spawn_pool.shift());
-  // // console.log(board[col], spawn_pool)
-  // fillSpawnPool();
-  // // await checkBall(col);
-  // // update();
 }
 
 function creatGrid() {
@@ -110,6 +101,7 @@ function creatGrid() {
         const tile = new Tile(start.x + i * TileSize * 2 * Math.sin(Math.PI / 3), start.y + j * TileSize * 2 + Math.round(i - gridWidth / 2) * TileSize, PosToText(i, j));
         if (isStart && !currentTile.i) {
           tile.moveHere(score + tailWidth);
+          tailTile = TextToPos(tile.pos);
         }
         grid.set(tile.pos, tile);
       }
@@ -137,11 +129,6 @@ async function update() {
   draw.bg();
   draw.grid();
   controller.draw();
-  // drawBalls();
-  // drawCombos();
-  // if (!animating && loading)
-  //   await checkBalls();
-  // loading = animating;
 }
 
 function tick() {
@@ -150,7 +137,7 @@ function tick() {
     if (!botMoveList.length)
       botMoveList = findPath(itemTile);
     var nextTile = botMoveList.shift();
-    controller.dir = posToDir(currentTile, TextToPos(nextTile.pos));
+    if (nextTile) controller.dir = posToDir(currentTile, TextToPos(nextTile.pos));
   }
   var dir = controller.dir;
   var vector = dirToPos(dir);
@@ -355,9 +342,13 @@ class Tile {
   tick() {
     if (this.decay > 0) {
       this.decay--;
-    } else if (this.decay === 1) {
-      this.state = state.EMPTY;
-      this.targetSize = 0.7;
+      if (this.decay === 0) {
+        var pos = dirToPos(this.linkDir);
+        tailTile.i += pos.i;
+        tailTile.j += pos.j;
+        this.state = state.EMPTY;
+        this.targetSize = 0.7;
+      }
     } else if (this.state > 0 && this.state < 5) {
       this.state = state.EMPTY;
       this.linkDir = -1;
@@ -408,6 +399,8 @@ class Tile {
           ctx.fillStyle = colors.BODY;
         else if (this.state === state.BODY_WITH_ITEM)
           ctx.fillStyle = colors.BODY_WITH_ITEM;
+        if (false && PosToText(tailTile.i, tailTile.j) === this.pos)
+          ctx.fillStyle = 'red';
         ctx.fill();
 
         if (this.linkDir >= 0 && this.pos !== PosToText(currentTile.i, currentTile.j)) {
@@ -460,19 +453,25 @@ function loadScore() {
   return 0;
 }
 
-findPath = (targetPos) => {
+findPath = (itemPos, isTail) => {
   console.log('start find path');
+  var targetPos = itemPos;
+  if (isTail) targetPos = tailTile;
   var openList = [];
   var closedList = [];
   var start = grid.get(PosToText(currentTile.i, currentTile.j));
   var end = grid.get(PosToText(targetPos.i, targetPos.j));
+  var tail = grid.get(PosToText(tailTile.i, tailTile.j));
   start.setGH(0, start.getDistance(targetPos));
   start.connection = null;
   openList.push(start);
   var loopExit = 999;
+  var isReachEnd = false;
+  var result = [];
 
   while (openList.length > 0 && loopExit-- > 0) {
     var current = openList[0];
+    if (!isReachEnd && !isTail) tail = _getNextTail(tail);
     for (let i = 1; i < openList.length; i++) {
       if (openList[i].f < current.f || openList[i].f === current.f && openList[i].h < current.h) {
         current = openList[i];
@@ -482,14 +481,21 @@ findPath = (targetPos) => {
     closedList.push(current);
 
     if (current === end) {
-      var path = [];
+      // console.log('reach end')
       var temp = current;
       while (temp.connection) {
-        path.unshift(temp);
+        result.unshift(temp);
         temp = temp.connection;
       }
-      return path;
+      isReachEnd = true;
+      openList = [];
     }
+    if (isReachEnd && (!tail || current === tail)) {
+      // console.log('found')
+      if (isTail) return result.slice(0, 1);
+      return result;
+    }
+    if (isReachEnd) targetPos = TextToPos(tail.pos);
 
     var currentPos = TextToPos(current.pos);
     var neighborsPos = [
@@ -514,9 +520,21 @@ findPath = (targetPos) => {
       }
     });
   }
-  isBotEnabled = false;
-  console.log('timeout');
-  return [];
+  if (loopExit <= 0) console.error('timeout');
+  if (isTail) {
+    isBotEnabled = false;
+    return [];
+  }
+  return findPath(tailTile, true);
+
+  function _getNextTail(tail) {
+    if (!tail || tail.linkDir < 0) return;
+    var { i, j } = TextToPos(tail.pos);
+    var pos = dirToPos(tail.linkDir);
+    i += pos.i;
+    j += pos.j;
+    return grid.get(PosToText(i, j));
+  }
 }
 
 
