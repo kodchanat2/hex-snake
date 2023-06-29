@@ -10,6 +10,7 @@ const colors = {
   WALL: "#333333",
   BODY: "#081905",
   BODY_WITH_ITEM: "#481905",
+  ITEM: "#ff6666",
 }
 const state = {
   EMPTY: 0,
@@ -29,10 +30,16 @@ var highscore = 0;
 var score = 0;
 var animateScore = 0;
 var scoreScale = 1;
-var loading = false;
-var animating = false;
+// var loading = false;
 var grid = new Map();
+var isBotEnabled = false;
+var delayedClickToggleBot = 0;
+var botMoveList = [];
 var currentTile = {
+  i: 0,
+  j: 0,
+}
+var itemTile = {
   i: 0,
   j: 0,
 }
@@ -66,7 +73,14 @@ async function touch(e) {
     window.location.reload();
     return;
   }
-
+  if (y > 190 && x < 20) {
+    if (delayedClickToggleBot) return;
+    delayedClickToggleBot = FPS * 2;
+    isBotEnabled = !isBotEnabled;
+    return;
+  }
+  if (isBotEnabled) botMoveList = [];
+  isBotEnabled = false;
   controller.touch(x, y);
   // if (y < react.height - max_board * (ball_radius * 2 + ball_padding) * react.width / 100) return loading = false;
   // var col = Math.floor(x / (react.width / 3));
@@ -108,6 +122,7 @@ function setItemTile() {
   const blankTiles = [...grid].filter(([pos, tile]) => tile.state === state.EMPTY);
   var i = Math.floor(Math.random() * blankTiles.length);
   blankTiles[i][1].setItem();
+  itemTile = TextToPos(blankTiles[i][0]);
 }
 
 async function update() {
@@ -116,6 +131,7 @@ async function update() {
     frameCount = 0;
     tick();
   }
+  if (delayedClickToggleBot) delayedClickToggleBot--;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   animating = false;
   draw.bg();
@@ -129,6 +145,13 @@ async function update() {
 }
 
 function tick() {
+  if (isBotEnabled) {
+    // console.log(botMoveList)
+    if (!botMoveList.length)
+      botMoveList = findPath(itemTile);
+    var nextTile = botMoveList.shift();
+    controller.dir = posToDir(currentTile, TextToPos(nextTile.pos));
+  }
   var dir = controller.dir;
   var vector = dirToPos(dir);
   var target = {
@@ -176,6 +199,12 @@ const draw = {
     ctx.fillText("score: " + animateScore, 2 * screen_scale, 7 * screen_scale);
     setFontSize(3)
     ctx.fillText("highscore: " + highscore, 2 * screen_scale, 3 * screen_scale);
+
+    ctx.fillStyle = '#749D4E';
+    ctx.fillRect(0, 190 * screen_scale, 20 * screen_scale, 10 * screen_scale);
+    setFontSize(4)
+    ctx.fillStyle = "black";
+    ctx.fillText(`Bot: ${isBotEnabled ? 'on' : 'off'}`, 2 * screen_scale, 193 * screen_scale);
     setFontSize(10);
     ctx.fillText("↻", 92 * screen_scale, 2 * screen_scale);
 
@@ -221,8 +250,9 @@ const controller = {
     controller.dir = (dir + 6) % 6;
   },
   draw: () => {
+    var color = isBotEnabled ? colors.BODY_WITH_ITEM : colors.TILE;
     draw.tile(50 * screen_scale, 160 * screen_scale, 20 * screen_scale);
-    ctx.strokeStyle = colors.TILE;
+    ctx.strokeStyle = color;
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.lineWidth = 1;
@@ -232,7 +262,7 @@ const controller = {
     var y = 160 + 10 * Math.sin(controller.dir * Math.PI / 3 + Math.PI / 6);
     // ctx.arc(this.x * screen_scale, this.y * screen_scale, TileSize * 0.7 * screen_scale, 0, 2 * Math.PI);
     ctx.arc(x * screen_scale, y * screen_scale, 5 * screen_scale, 0, 2 * Math.PI);
-    ctx.fillStyle = colors.TILE;
+    ctx.fillStyle = color;
     ctx.fill();
   }
 }
@@ -264,6 +294,11 @@ function dirToPos(dir) {
       return { i: 0, j: 0 };
   }
 }
+function posToDir(start, end) {
+  var dir = Math.floor(Math.atan2(end.j - start.j, end.i - start.i) / (Math.PI * 2 / 6));
+  return (dir + 6) % 6;
+}
+
 
 
 /*========== Tile  ==========*/
@@ -279,6 +314,12 @@ class Tile {
     this.targetAlpha = 0;
     this.linkDir = -1;
     this.decay = 0;
+
+    // bot
+    this.connection = null;
+    this.h = 0;
+    this.g = 0;
+    this.f = this.g + this.h;
   }
 
   moveHere(life) {
@@ -319,9 +360,21 @@ class Tile {
       this.targetSize = 0.7;
     } else if (this.state > 0 && this.state < 5) {
       this.state = state.EMPTY;
+      this.linkDir = -1;
       this.targetSize = 0;
       this.targetAlpha = 0;
     }
+  }
+
+  setGH(g, h) {
+    this.g = g;
+    this.h = h;
+    this.f = g + h;
+  }
+
+  getDistance(pos) {
+    var { i, j } = pos;
+    return Math.max(Math.abs(i - itemTile.i), Math.abs(j - itemTile.j));
   }
 
   update() {
@@ -375,7 +428,7 @@ class Tile {
     if (this.size !== 0)
       ctx.scale(this.size, this.size);
 
-    ctx.fillStyle = "#ff6666";
+    ctx.fillStyle = colors.ITEM;
     ctx.fill();
     ctx.strokeStyle = "white";
     ctx.stroke();
@@ -406,5 +459,65 @@ function loadScore() {
   }
   return 0;
 }
+
+findPath = (targetPos) => {
+  console.log('start find path');
+  var openList = [];
+  var closedList = [];
+  var start = grid.get(PosToText(currentTile.i, currentTile.j));
+  var end = grid.get(PosToText(targetPos.i, targetPos.j));
+  start.setGH(0, start.getDistance(targetPos));
+  start.connection = null;
+  openList.push(start);
+  var loopExit = 999;
+
+  while (openList.length > 0 && loopExit-- > 0) {
+    var current = openList[0];
+    for (let i = 1; i < openList.length; i++) {
+      if (openList[i].f < current.f || openList[i].f === current.f && openList[i].h < current.h) {
+        current = openList[i];
+      }
+    }
+    openList = openList.filter(tile => tile !== current);
+    closedList.push(current);
+
+    if (current === end) {
+      var path = [];
+      var temp = current;
+      while (temp.connection) {
+        path.unshift(temp);
+        temp = temp.connection;
+      }
+      return path;
+    }
+
+    var currentPos = TextToPos(current.pos);
+    var neighborsPos = [
+      { i: currentPos.i + 1, j: currentPos.j },
+      { i: currentPos.i, j: currentPos.j + 1 },
+      { i: currentPos.i - 1, j: currentPos.j + 1 },
+      { i: currentPos.i - 1, j: currentPos.j },
+      { i: currentPos.i, j: currentPos.j - 1 },
+      { i: currentPos.i + 1, j: currentPos.j - 1 },
+    ];
+    neighborsPos.forEach(pos => {
+      var tile = grid.get(PosToText(pos.i, pos.j));
+      if (tile && closedList.includes(tile)) return;
+      if (tile && (tile.state <= state.EMPTY || tile.decay - current.g < 0)) {
+        var g = current.g + 1;
+        var h = tile.getDistance(targetPos);
+        if (!openList.includes(tile) || g < tile.g) {
+          tile.setGH(g, h);
+          tile.connection = current;
+          if (!openList.includes(tile)) openList.push(tile);
+        }
+      }
+    });
+  }
+  isBotEnabled = false;
+  console.log('timeout');
+  return [];
+}
+
 
 init();
