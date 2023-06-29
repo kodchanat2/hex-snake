@@ -129,29 +129,13 @@ async function update() {
 }
 
 function tick() {
-  var target = currentTile;
-  switch (controller.dir) {
-    case 0:
-      target = { i: currentTile.i + 1, j: currentTile.j };
-      break;
-    case 1:
-      target = { i: currentTile.i, j: currentTile.j + 1 };
-      break;
-    case 2:
-      target = { i: currentTile.i - 1, j: currentTile.j + 1 };
-      break;
-    case 3:
-      target = { i: currentTile.i - 1, j: currentTile.j };
-      break;
-    case 4:
-      target = { i: currentTile.i, j: currentTile.j - 1 };
-      break;
-    case 5:
-      target = { i: currentTile.i + 1, j: currentTile.j - 1 };
-      break;
-    default:
-      break;
+  var dir = controller.dir;
+  var vector = dirToPos(dir);
+  var target = {
+    i: currentTile.i + vector.i,
+    j: currentTile.j + vector.j,
   }
+  var currentTileItem = grid.get(PosToText(currentTile.i, currentTile.j));
   var targetTile = grid.get(PosToText(target.i, target.j));
   // console.log(controller.dir, target, targetTile)
   if (targetTile) {
@@ -163,6 +147,7 @@ function tick() {
       setItemTile();
       score++;
     }
+    currentTileItem.setLinkDir(dir);
     targetTile.moveHere(score + tailWidth);
   } else {
     // gameover
@@ -261,7 +246,24 @@ function TextToPos(pos) {
 function PosToText(i, j) {
   return `${i >= 0 ? 'P' : 'N'}${Math.abs(i)}_${j >= 0 ? 'P' : 'N'}${Math.abs(j)}`;
 }
-// function dirToPos(dir) {
+function dirToPos(dir) {
+  switch (dir) {
+    case 0:
+      return { i: 1, j: 0 };
+    case 1:
+      return { i: 0, j: 1 };
+    case 2:
+      return { i: -1, j: 1 };
+    case 3:
+      return { i: -1, j: 0 };
+    case 4:
+      return { i: 0, j: -1 };
+    case 5:
+      return { i: 1, j: -1 };
+    default:
+      return { i: 0, j: 0 };
+  }
+}
 
 
 /*========== Tile  ==========*/
@@ -275,6 +277,7 @@ class Tile {
     this.alpha = 0;
     this.targetSize = 0;
     this.targetAlpha = 0;
+    this.linkDir = -1;
     this.decay = 0;
   }
 
@@ -283,7 +286,6 @@ class Tile {
       // gameover
       return;
     }
-
     currentTile = TextToPos(this.pos);
     this.state += state.BODY;
     this.decay = life;
@@ -303,7 +305,10 @@ class Tile {
     this.state = state.ITEM;
     this.targetSize = 1.2;
     this.targetAlpha = 1;
+  }
 
+  setLinkDir(dir) {
+    this.linkDir = dir;
   }
 
   tick() {
@@ -345,18 +350,21 @@ class Tile {
     }
     else {
       ctx.globalAlpha = this.alpha;
-      if (this.size !== 0)
-        ctx.scale(this.size, this.size);
-      if (this.state === state.BODY) {
-        ctx.fillStyle = colors.BODY;
+      if (this.state > 0 && this.state < 5) {
+        if (this.state === state.BODY)
+          ctx.fillStyle = colors.BODY;
+        else if (this.state === state.BODY_WITH_ITEM)
+          ctx.fillStyle = colors.BODY_WITH_ITEM;
         ctx.fill();
-      } else if (this.state === state.BODY_WITH_ITEM) {
-        ctx.fillStyle = colors.BODY_WITH_ITEM;
-        ctx.fill();
+
+        if (this.linkDir >= 0 && this.pos !== PosToText(currentTile.i, currentTile.j)) {
+          var x = this.x + TileSize * Math.cos(this.linkDir * Math.PI / 3 + Math.PI / 6);
+          var y = this.y + TileSize * Math.sin(this.linkDir * Math.PI / 3 + Math.PI / 6);
+          ctx.arc(x * screen_scale, y * screen_scale, TileSize / 2 * screen_scale, 0, 2 * Math.PI);
+          ctx.fill();
+        }
       }
       ctx.globalAlpha = 1;
-      if (this.size !== 0)
-        ctx.scale(1 / this.size, 1 / this.size);
     }
   }
 
