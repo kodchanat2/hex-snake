@@ -33,8 +33,10 @@ var scoreScale = 1;
 // var loading = false;
 var grid = new Map();
 var isBotEnabled = false;
+var debugged = false;
 var delayedClickToggleBot = 0;
 var botMoveList = [];
+var isTailChasing = false;
 var currentTile = {
   i: 0,
   j: 0,
@@ -75,6 +77,12 @@ async function touch(e) {
   if (y < 10 && x > 90) {
     saveScore();
     window.location.reload();
+    return;
+  }
+  if (y < 15 && x < 20) {
+    if (delayedClickToggleBot) return;
+    delayedClickToggleBot = FPS * 2;
+    debugged = !debugged;
     return;
   }
   if (y > 190 && x < 20) {
@@ -134,10 +142,11 @@ async function update() {
 function tick() {
   if (isBotEnabled) {
     // console.log(botMoveList)
-    if (!botMoveList.length)
+    if (!botMoveList.length || isTailChasing)
       botMoveList = findPath(itemTile);
     var nextTile = botMoveList.shift();
     if (nextTile) controller.dir = posToDir(currentTile, TextToPos(nextTile.pos));
+    else controller.dir = (controller.dir + 3) % 6;
   }
   var dir = controller.dir;
   var vector = dirToPos(dir);
@@ -225,6 +234,14 @@ const draw = {
     grid.forEach(tile => {
       tile.update();
     });
+    if (debugged) {
+      ctx.fillStyle = isTailChasing ? 'blue' : 'red';
+      botMoveList.forEach(tile => {
+        ctx.beginPath();
+        ctx.arc(tile.x * screen_scale, tile.y * screen_scale, TileSize / 4 * screen_scale, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+    }
   }
 }
 
@@ -399,8 +416,8 @@ class Tile {
           ctx.fillStyle = colors.BODY;
         else if (this.state === state.BODY_WITH_ITEM)
           ctx.fillStyle = colors.BODY_WITH_ITEM;
-        if (false && PosToText(tailTile.i, tailTile.j) === this.pos)
-          ctx.fillStyle = 'red';
+        if (debugged && isTailChasing && PosToText(tailTile.i, tailTile.j) === this.pos)
+          ctx.fillStyle = 'blue';
         ctx.fill();
 
         if (this.linkDir >= 0 && this.pos !== PosToText(currentTile.i, currentTile.j)) {
@@ -454,8 +471,9 @@ function loadScore() {
 }
 
 findPath = (itemPos, isTail) => {
-  console.log('start find path');
+  if (debugged) console.log('start find path');
   var targetPos = itemPos;
+  isTailChasing = isTail;
   if (isTail) targetPos = tailTile;
   var openList = [];
   var closedList = [];
@@ -471,9 +489,16 @@ findPath = (itemPos, isTail) => {
 
   while (openList.length > 0 && loopExit-- > 0) {
     var current = openList[0];
-    if (!isReachEnd && !isTail) tail = _getNextTail(tail);
+    // if (!isReachEnd && !isTail) tail = _getNextTail(tail);
+    var maxF = 0;
     for (let i = 1; i < openList.length; i++) {
-      if (openList[i].f < current.f || openList[i].f === current.f && openList[i].h < current.h) {
+      if (isTail) {
+        if (openList[i].f > maxF) {
+          current = openList[i];
+          maxF = openList[i].f;
+        }
+      }
+      else if (openList[i].f < current.f || openList[i].f === current.f && openList[i].h < current.h) {
         current = openList[i];
       }
     }
@@ -481,18 +506,19 @@ findPath = (itemPos, isTail) => {
     closedList.push(current);
 
     if (current === end) {
-      // console.log('reach end')
+      if (debugged) console.log('reach end')
       var temp = current;
       while (temp.connection) {
         result.unshift(temp);
         temp = temp.connection;
+        if (!isTail) tail = _getNextTail(tail);
       }
       isReachEnd = true;
       openList = [];
     }
     if (isReachEnd && (!tail || current === tail)) {
-      // console.log('found')
-      if (isTail) return result.slice(0, 1);
+      if (debugged) console.log('found')
+      // if (isTail) return result.slice(0, 1);
       return result;
     }
     if (isReachEnd) targetPos = TextToPos(tail.pos);
@@ -520,7 +546,10 @@ findPath = (itemPos, isTail) => {
       }
     });
   }
-  if (loopExit <= 0) console.error('timeout');
+  if (debugged) {
+    if (loopExit <= 0) console.error('timeout');
+    else console.error('no path', tail);
+  }
   if (isTail) {
     isBotEnabled = false;
     return [];
@@ -528,7 +557,7 @@ findPath = (itemPos, isTail) => {
   return findPath(tailTile, true);
 
   function _getNextTail(tail) {
-    if (!tail || tail.linkDir < 0) return;
+    if (!tail || tail.state === state.EMPTY || tail.linkDir < 0) return;
     var { i, j } = TextToPos(tail.pos);
     var pos = dirToPos(tail.linkDir);
     i += pos.i;
