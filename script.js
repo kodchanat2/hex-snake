@@ -41,6 +41,7 @@ var botMoveList = [];
 const BOT_BUTTONS = [{ mode: 'astar', x0: 0, x1: 16 }, { mode: 'hamilton', x0: 16, x1: 40 }];
 const SPEED_BUTTONS = [{ speed: 1, x0: 70, x1: 80 }, { speed: 5, x0: 80, x1: 90 }, { speed: 10, x0: 90, x1: 100 }];
 var botTickAcc = 0;
+const LINK_3D = { x0: 79, x1: 90 };                          // top right, next to restart (↻)
 const DEBUG_BUTTON = { x0: 80, x1: 100, y0: 180, y1: 189 };   // above the speed buttons
 var isTailChasing = false;
 var currentTile = {
@@ -80,6 +81,11 @@ async function touch(e) {
   var x = (e.clientX - react.left) / screen_scale;
   var y = (e.clientY - react.top) / screen_scale;
   // console.log(x, y);
+  if (y < 10 && x >= LINK_3D.x0 && x < LINK_3D.x1) {
+    saveScore();
+    window.location.href = './3d.html';
+    return;
+  }
   if (y < 10 && x > 90) {
     saveScore();
     window.location.reload();
@@ -208,12 +214,25 @@ const draw = {
     setFontSize(7 * scoreScale);
     if (scoreScale > 1.001) scoreScale -= (scoreScale - 1) / 10;
     ctx.fillText("score: " + animateScore, 2 * screen_scale, 7 * screen_scale);
+    // board completion: share of the tiles the snake can still fill that it has filled
+    const scoreWidth = ctx.measureText("score: " + animateScore).width;
+    setFontSize(3.5);
+    ctx.globalAlpha = 0.75;
+    ctx.fillText(`(${(100 * animateScore / (grid.size - tailWidth)).toFixed(1)}%)`, 2 * screen_scale + scoreWidth + 1.5 * screen_scale, 10.2 * screen_scale);
+    ctx.globalAlpha = 1;
     setFontSize(3)
     ctx.fillText("highscore: " + highscore, 2 * screen_scale, 3 * screen_scale);
 
     draw.botButtons();
     setFontSize(10);
     ctx.fillText("↻", 92 * screen_scale, 2 * screen_scale);
+    // link to the 3D game, next to restart
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = Math.max(1, 0.4 * screen_scale);
+    ctx.strokeRect(LINK_3D.x0 * screen_scale, 2.5 * screen_scale, (LINK_3D.x1 - LINK_3D.x0 - 1) * screen_scale, 7 * screen_scale);
+    ctx.lineWidth = 1;
+    setFontSize(4.5);
+    ctx.fillText("3D", (LINK_3D.x0 + 1.6) * screen_scale, 3.6 * screen_scale);
 
     if (showFPS) {
       var fps = 0;
