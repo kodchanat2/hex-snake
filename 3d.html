@@ -196,28 +196,31 @@
     import { createDebug } from './snake3d-debug.js';
 
     /*========== Config ==========*/
-    const SIZE = 16;                       // 16 × 16 × 16 cells (must be even: the Hamiltonian cycle needs it)
+    // Box: wide (x) × tall (y, up) × deep (z). Depth and height must be even (the Hamiltonian cycle).
+    const DIMS = { x: 10, y: 10, z: 10 };
+    const CELLS = DIMS.x * DIMS.y * DIMS.z;
+    const SPAN = Math.max(DIMS.x, DIMS.y, DIMS.z);       // longest side, for lights, fog and the camera
     const TICK_MS = 220;                   // one move per tick
     const START_LENGTH = 3;
     const COLORS = { body: 0xf2f2ea, head: 0x544f08, food: 0xff9a3c, edge: 0x081905, blockEdge: 0x8a8a8a, headEdge: 0xfff2a0, fed: 0xff9a3c, fog: 0x7d9a52 };
-    const BEST_KEY = `snake3d-best-${SIZE}`;
+    const BEST_KEY = `snake3d-best-${DIMS.x}x${DIMS.y}x${DIMS.z}`;
 
     /*========== Game state (pure logic, no rendering) ==========*/
     const key = c => `${c.x},${c.y},${c.z}`;
     const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-    const inside = c => [c.x, c.y, c.z].every(v => v >= 0 && v < SIZE);
+    const inside = c => c.x >= 0 && c.x < DIMS.x && c.y >= 0 && c.y < DIMS.y && c.z >= 0 && c.z < DIMS.z;
     const opposite = (a, b) => a.x === -b.x && a.y === -b.y && a.z === -b.z;
 
     function newGame() {
-      const mid = Math.floor(SIZE / 2);
-      const snake = Array.from({ length: START_LENGTH }, (_, k) => ({ x: mid - k, y: mid, z: mid }));
+      const mid = { x: Math.floor(DIMS.x / 2), y: Math.floor(DIMS.y / 2), z: Math.floor(DIMS.z / 2) };
+      const snake = Array.from({ length: START_LENGTH }, (_, k) => ({ x: mid.x - k, y: mid.y, z: mid.z }));
       return { snake, prev: snake.map(c => ({ ...c })), fed: [], tailFed: false, eaten: null, dir: { x: 1, y: 0, z: 0 }, queue: [], food: null, score: 0, over: false, won: false, paused: false };
     }
 
     function placeFood(game) {
       const used = new Set(game.snake.map(key));
       const free = [];
-      for (let x = 0; x < SIZE; x++) for (let y = 0; y < SIZE; y++) for (let z = 0; z < SIZE; z++) {
+      for (let x = 0; x < DIMS.x; x++) for (let y = 0; y < DIMS.y; y++) for (let z = 0; z < DIMS.z; z++) {
         if (!used.has(`${x},${y},${z}`)) free.push({ x, y, z });
       }
       return free.length ? free[Math.floor(Math.random() * free.length)] : null;
@@ -270,13 +273,13 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
       const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
-      const radius = SIZE * 0.9;                                    // ~ the arena's bounding sphere seen from the corner
+      const radius = Math.hypot(DIMS.x, DIMS.y, DIMS.z) / 2 * 1.04;  // a little over the box's bounding sphere
       const dist = radius / Math.sin(Math.min(vHalf, hHalf));
       const tall = camera.aspect < 0.8;
-      controls.target.set(0, tall ? -SIZE * 0.45 : -1, 0);
+      controls.target.set(0, tall ? -radius * 0.45 : -DIMS.y * 0.1, 0);
       camera.position.copy(VIEW_DIR).multiplyScalar(dist).add(controls.target);
-      scene.fog.near = dist - SIZE * 0.4;                         // faint fog: far blocks a little paler
-      scene.fog.far = dist + SIZE * 1.6;
+      scene.fog.near = dist - radius * 0.5;                       // faint fog: far blocks a little paler
+      scene.fog.far = dist + radius * 2;
       camera.updateProjectionMatrix();
     }
     fitCamera();
@@ -287,30 +290,33 @@
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x445522, 0.9));
     const sun = new THREE.DirectionalLight(0xffffff, 2.4);
-    sun.position.set(SIZE * 0.6, SIZE * 1.8, SIZE * 0.8);
+    sun.position.set(SPAN * 0.6, SPAN * 1.8, SPAN * 0.8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    const shadowHalf = SIZE * 0.9;
-    Object.assign(sun.shadow.camera, { left: -shadowHalf, right: shadowHalf, top: shadowHalf, bottom: -shadowHalf, near: 1, far: SIZE * 5 });
+    const shadowHalf = SPAN * 0.9;
+    Object.assign(sun.shadow.camera, { left: -shadowHalf, right: shadowHalf, top: shadowHalf, bottom: -shadowHalf, near: 1, far: SPAN * 5 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     scene.add(sun);
 
-    // cell (0..9) → world position, the arena centred on the origin
-    const half = SIZE / 2;
-    const toWorld = c => new THREE.Vector3(c.x - half + 0.5, c.y - half + 0.5, c.z - half + 0.5);
+    // cell → world position, the box centred on the origin
+    const half = { x: DIMS.x / 2, y: DIMS.y / 2, z: DIMS.z / 2 };
+    const toWorld = c => new THREE.Vector3(c.x - half.x + 0.5, c.y - half.y + 0.5, c.z - half.z + 0.5);
 
     // arena: box edges + a floor grid
-    const box = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(SIZE, SIZE, SIZE)),
+    const box = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(DIMS.x, DIMS.y, DIMS.z)),
       new THREE.LineBasicMaterial({ color: COLORS.edge, transparent: true, opacity: 0.55 }));
     scene.add(box);
     // a faint lattice through the whole volume: every cell boundary in x, y and z
     const lattice = [];
-    for (let i = 0; i <= SIZE; i++) for (let j = 0; j <= SIZE; j++) {
-      const u = i - half, v = j - half;
-      lattice.push(-half, u, v, half, u, v);     // lines along x
-      lattice.push(u, -half, v, u, half, v);     // along y
-      lattice.push(u, v, -half, u, v, half);     // along z
+    for (let y = 0; y <= DIMS.y; y++) for (let z = 0; z <= DIMS.z; z++) {   // lines along x
+      lattice.push(-half.x, y - half.y, z - half.z, half.x, y - half.y, z - half.z);
+    }
+    for (let x = 0; x <= DIMS.x; x++) for (let z = 0; z <= DIMS.z; z++) {   // along y
+      lattice.push(x - half.x, -half.y, z - half.z, x - half.x, half.y, z - half.z);
+    }
+    for (let x = 0; x <= DIMS.x; x++) for (let y = 0; y <= DIMS.y; y++) {   // along z
+      lattice.push(x - half.x, y - half.y, -half.z, x - half.x, y - half.y, half.z);
     }
     const latticeGeo = new THREE.BufferGeometry();
     latticeGeo.setAttribute('position', new THREE.Float32BufferAttribute(lattice, 3));
@@ -346,9 +352,9 @@
     food.castShadow = true;
     scene.add(food);
     // the floor only catches shadows (transparent otherwise)
-    const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.ShadowMaterial({ opacity: 0.28 }));
+    const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(DIMS.x, DIMS.z), new THREE.ShadowMaterial({ opacity: 0.28 }));
     shadowFloor.rotation.x = -Math.PI / 2;
-    shadowFloor.position.y = -half + 0.001;
+    shadowFloor.position.y = -half.y + 0.001;
     shadowFloor.receiveShadow = true;
     scene.add(shadowFloor);
     // the food's cell drawn as a faint cube, so its position in the grid is readable
@@ -386,10 +392,10 @@
     document.querySelectorAll('.pad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); turn(b.dataset.move); }));
 
     /*========== Bots ==========*/
-    const bots = createBots(SIZE);
+    const bots = createBots(DIMS);
     const statusEl = document.getElementById('botStatus');
     let botMode = null, botSpeed = 1, lastMove = null;
-    const debug = createDebug(scene, toWorld, SIZE);
+    const debug = createDebug(scene, toWorld, DIMS);
     const debugButton = document.getElementById('debugButton');
     debugButton.addEventListener('click', () => {
       debug.visible = !debug.visible;
@@ -512,7 +518,7 @@
       }
       scoreEl.textContent = game.score;
       // share of the board the snake can still fill that it has filled
-      completionEl.textContent = `(${(100 * game.score / (SIZE ** 3 - START_LENGTH)).toFixed(1)}%)`;
+      completionEl.textContent = `(${(100 * game.score / (CELLS - START_LENGTH)).toFixed(1)}%)`;
     }
 
     function frame(t) {

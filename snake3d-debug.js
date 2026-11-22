@@ -14,8 +14,8 @@ const AHEAD_SHOWN = 150;               // the yellow route shows only the next p
 const CHUNK_SHOWN = 40;                // the orange chunk path shows only its next steps (plus the exit dot)
 const CHUNK_OPACITY = 0.3;
 
-export function createDebug(scene, toWorld, SIZE) {
-  const CELLS = SIZE ** 3;
+export function createDebug(scene, toWorld, dims) {    // dims: { x, y, z }
+  const CELLS = dims.x * dims.y * dims.z;
   const MAX_POINTS = CELLS + 1;          // the whole cycle, closed
   const group = new THREE.Group();
   group.visible = false;
@@ -56,15 +56,16 @@ export function createDebug(scene, toWorld, SIZE) {
   const tintHead = new THREE.InstancedMesh(tintGeo, tintMat(0.11), CELLS);
   [tintOthers, tintHead].forEach(m => { m.count = 0; group.add(m); });
   const matrix = new THREE.Matrix4(), color = new THREE.Color();
-  const id = c => (c.x * SIZE + c.y) * SIZE + c.z;
-  const cellOf = k => ({ x: Math.floor(k / (SIZE * SIZE)), y: Math.floor(k / SIZE) % SIZE, z: k % SIZE });
+  const id = c => (c.x * dims.y + c.y) * dims.z + c.z;           // same packing as snake3d-grid.js
+  const cellOf = k => ({ x: Math.floor(k / (dims.y * dims.z)), y: Math.floor(k / dims.z) % dims.y, z: k % dims.z });
+  const inside = c => c.x >= 0 && c.x < dims.x && c.y >= 0 && c.y < dims.y && c.z >= 0 && c.z < dims.z;
 
   function drawPockets(pockets, snake) {
     if (!pockets) { tintOthers.count = tintHead.count = 0; return; }
     const headPockets = new Set();
     [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].forEach(([a, b, c]) => {
       const n = { x: snake[0].x + a, y: snake[0].y + b, z: snake[0].z + c };
-      if ([n.x, n.y, n.z].every(v => v >= 0 && v < SIZE) && pockets.pocket[id(n)]) headPockets.add(pockets.pocket[id(n)]);
+      if (inside(n) && pockets.pocket[id(n)]) headPockets.add(pockets.pocket[id(n)]);
     });
     let o = 0, h = 0;
     for (let k = 0; k < CELLS; k++) {

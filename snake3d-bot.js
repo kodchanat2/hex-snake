@@ -22,8 +22,8 @@ const REPAIR_RETRY = 25;              // moves to wait after a failed cycle rebu
 // the game. Off until it runs outside the loop (or is replaced); A* / chunk fill keep the snake alive meanwhile.
 const REBUILD_IN_LOOP = false;
 
-export function createBots(SIZE) {
-  const G = makeGrid(SIZE);
+export function createBots(dims) {                      // dims: { x, y, z } or one number for a cube
+  const G = makeGrid(dims);
   const { CELLS, id, sub, neighbors, manhattan } = G;
   const C = makeCycles(G);
   const chunk = makeChunkFill(G);
