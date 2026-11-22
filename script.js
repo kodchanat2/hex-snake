@@ -10,6 +10,7 @@ const colors = {
   WALL: "#333333",
   BODY: "#081905",
   BODY_WITH_ITEM: "#481905",
+  HEAD: "#544f08",
   ITEM: "#ff6666",
 }
 const state = {
@@ -36,6 +37,11 @@ var isBotEnabled = false;
 var debugged = false;
 var delayedClickToggleBot = 0;
 var botMoveList = [];
+// bottom-left buttons (x in screen units of 0..100): tap to let a bot play; steering by hand turns it off
+const BOT_BUTTONS = [{ mode: 'astar', x0: 0, x1: 16 }, { mode: 'hamilton', x0: 16, x1: 40 }];
+const SPEED_BUTTONS = [{ speed: 1, x0: 70, x1: 80 }, { speed: 5, x0: 80, x1: 90 }, { speed: 10, x0: 90, x1: 100 }];
+var botTickAcc = 0;
+const DEBUG_BUTTON = { x0: 80, x1: 100, y0: 180, y1: 189 };   // above the speed buttons
 var isTailChasing = false;
 var currentTile = {
   i: 0,
@@ -79,16 +85,20 @@ async function touch(e) {
     window.location.reload();
     return;
   }
-  if (y < 15 && x < 20) {
-    if (delayedClickToggleBot) return;
-    delayedClickToggleBot = FPS * 2;
+  if (y >= DEBUG_BUTTON.y0 && y < DEBUG_BUTTON.y1 && x >= DEBUG_BUTTON.x0 && x < DEBUG_BUTTON.x1) {
+    if (delayedClickToggleBot) return;                       // touchstart/touchend/click arrive together
+    delayedClickToggleBot = Math.round(FPS * 0.3);
     debugged = !debugged;
     return;
   }
-  if (y > 190 && x < 20) {
-    if (delayedClickToggleBot) return;
-    delayedClickToggleBot = FPS * 2;
-    isBotEnabled = !isBotEnabled;
+  const speedButton = SPEED_BUTTONS.find(b => y > 190 && x >= b.x0 && x < b.x1);
+  if (speedButton) {
+    botSpeed = speedButton.speed;
+    return;
+  }
+  const botButton = BOT_BUTTONS.find(b => y > 190 && x >= b.x0 && x < b.x1);
+  if (botButton) {
+    botSetMode(botButton.mode);
     return;
   }
   if (isBotEnabled) botMoveList = [];
@@ -120,6 +130,11 @@ function creatGrid() {
 
 function setItemTile() {
   const blankTiles = [...grid].filter(([pos, tile]) => tile.state === state.EMPTY);
+  if (!blankTiles.length) {
+    // board full: nothing left to eat
+    itemTile = { i: NaN, j: NaN };
+    return;
+  }
   var i = Math.floor(Math.random() * blankTiles.length);
   blankTiles[i][1].setItem();
   itemTile = TextToPos(blankTiles[i][0]);
@@ -127,7 +142,10 @@ function setItemTile() {
 
 async function update() {
   // console.log(spawn_pool, board, poping_pool)
-  if (frameCount++ >= FPT) {
+  if (isBotEnabled) {
+    botTickAcc += botSpeed / (FPT + 1);                        // ×1 = the pace of a person playing
+    for (; botTickAcc >= 1; botTickAcc--) tick();
+  } else if (frameCount++ >= FPT) {
     frameCount = 0;
     tick();
   }
@@ -140,14 +158,7 @@ async function update() {
 }
 
 function tick() {
-  if (isBotEnabled) {
-    // console.log(botMoveList)
-    if (!botMoveList.length || isTailChasing)
-      botMoveList = findPath(itemTile);
-    var nextTile = botMoveList.shift();
-    if (nextTile) controller.dir = posToDir(currentTile, TextToPos(nextTile.pos));
-    else controller.dir = (controller.dir + 3) % 6;
-  }
+  if (isBotEnabled) botTick();
   var dir = controller.dir;
   var vector = dirToPos(dir);
   var target = {
@@ -157,6 +168,10 @@ function tick() {
   var currentTileItem = grid.get(PosToText(currentTile.i, currentTile.j));
   var targetTile = grid.get(PosToText(target.i, target.j));
   // console.log(controller.dir, target, targetTile)
+  if (targetTile && targetTile.state > 0) {
+    // gameover: ran into body / wall
+    return;
+  }
   if (targetTile) {
     if (targetTile.state === state.EMPTY)
       grid.forEach(tile => {
@@ -196,11 +211,7 @@ const draw = {
     setFontSize(3)
     ctx.fillText("highscore: " + highscore, 2 * screen_scale, 3 * screen_scale);
 
-    ctx.fillStyle = '#749D4E';
-    ctx.fillRect(0, 190 * screen_scale, 20 * screen_scale, 10 * screen_scale);
-    setFontSize(4)
-    ctx.fillStyle = "black";
-    ctx.fillText(`Bot: ${isBotEnabled ? 'on' : 'off'}`, 2 * screen_scale, 193 * screen_scale);
+    draw.botButtons();
     setFontSize(10);
     ctx.fillText("↻", 92 * screen_scale, 2 * screen_scale);
 
@@ -221,6 +232,33 @@ const draw = {
     }
   },
 
+  botButtons: () => {
+    setFontSize(4);
+    BOT_BUTTONS.forEach(b => {
+      const active = isBotEnabled && botMode === b.mode;
+      ctx.fillStyle = active ? colors.BODY_WITH_ITEM : '#749D4E';
+      ctx.fillRect(b.x0 * screen_scale, 190 * screen_scale, (b.x1 - b.x0 - 1) * screen_scale, 10 * screen_scale);
+      ctx.fillStyle = active ? 'white' : 'black';
+      ctx.fillText(BOT_LABELS[b.mode], (b.x0 + 2) * screen_scale, 193 * screen_scale);
+    });
+    ctx.fillStyle = debugged ? colors.BODY_WITH_ITEM : '#749D4E';
+    ctx.fillRect(DEBUG_BUTTON.x0 * screen_scale, DEBUG_BUTTON.y0 * screen_scale, (DEBUG_BUTTON.x1 - DEBUG_BUTTON.x0 - 1) * screen_scale, (DEBUG_BUTTON.y1 - DEBUG_BUTTON.y0) * screen_scale);
+    ctx.fillStyle = debugged ? 'white' : 'black';
+    ctx.fillText('Debug', (DEBUG_BUTTON.x0 + 2) * screen_scale, (DEBUG_BUTTON.y0 + 2.5) * screen_scale);
+    SPEED_BUTTONS.forEach(b => {
+      const active = botSpeed === b.speed;
+      ctx.fillStyle = active ? colors.BODY_WITH_ITEM : '#749D4E';
+      ctx.fillRect(b.x0 * screen_scale, 190 * screen_scale, (b.x1 - b.x0 - 1) * screen_scale, 10 * screen_scale);
+      ctx.fillStyle = active ? 'white' : 'black';
+      ctx.fillText('x' + b.speed, (b.x0 + 2) * screen_scale, 193 * screen_scale);
+    });
+    if (isBotEnabled && botDriver) {
+      setFontSize(3);
+      ctx.fillStyle = 'black';
+      ctx.fillText('now: ' + botDriver, 2 * screen_scale, 186 * screen_scale);
+    }
+  },
+
   tile: (x, y, size) => {
     ctx.beginPath();
     ctx.moveTo(x + size * Math.cos(0), y + size * Math.sin(0));
@@ -234,14 +272,7 @@ const draw = {
     grid.forEach(tile => {
       tile.update();
     });
-    if (debugged) {
-      ctx.fillStyle = isTailChasing ? 'blue' : 'red';
-      botMoveList.forEach(tile => {
-        ctx.beginPath();
-        ctx.arc(tile.x * screen_scale, tile.y * screen_scale, TileSize / 4 * screen_scale, 0, 2 * Math.PI);
-        ctx.fill();
-      });
-    }
+    if (debugged) botDebugDraw();
   }
 }
 
@@ -299,8 +330,13 @@ function dirToPos(dir) {
   }
 }
 function posToDir(start, end) {
-  var dir = Math.floor(Math.atan2(end.j - start.j, end.i - start.i) / (Math.PI * 2 / 6));
-  return (dir + 6) % 6;
+  const di = end.i - start.i;
+  const dj = end.j - start.j;
+  for (let dir = 0; dir < 6; dir++) {
+    const v = dirToPos(dir);
+    if (v.i === di && v.j === dj) return dir;
+  }
+  return controller.dir;
 }
 
 
@@ -318,12 +354,6 @@ class Tile {
     this.targetAlpha = 0;
     this.linkDir = -1;
     this.decay = 0;
-
-    // bot
-    this.connection = null;
-    this.h = 0;
-    this.g = 0;
-    this.f = this.g + this.h;
   }
 
   moveHere(life) {
@@ -374,17 +404,6 @@ class Tile {
     }
   }
 
-  setGH(g, h) {
-    this.g = g;
-    this.h = h;
-    this.f = g + h;
-  }
-
-  getDistance(pos) {
-    var { i, j } = pos;
-    return Math.max(Math.abs(i - itemTile.i), Math.abs(j - itemTile.j));
-  }
-
   update() {
     if (this.size !== this.targetSize) {
       this.size += (this.targetSize - this.size) / 5;
@@ -416,6 +435,8 @@ class Tile {
           ctx.fillStyle = colors.BODY;
         else if (this.state === state.BODY_WITH_ITEM)
           ctx.fillStyle = colors.BODY_WITH_ITEM;
+        if (PosToText(currentTile.i, currentTile.j) === this.pos)
+          ctx.fillStyle = colors.HEAD;
         if (debugged && isTailChasing && PosToText(tailTile.i, tailTile.j) === this.pos)
           ctx.fillStyle = 'blue';
         ctx.fill();
@@ -469,102 +490,5 @@ function loadScore() {
   }
   return 0;
 }
-
-findPath = (itemPos, isTail) => {
-  if (debugged) console.log('start find path');
-  var targetPos = itemPos;
-  isTailChasing = isTail;
-  if (isTail) targetPos = tailTile;
-  var openList = [];
-  var closedList = [];
-  var start = grid.get(PosToText(currentTile.i, currentTile.j));
-  var end = grid.get(PosToText(targetPos.i, targetPos.j));
-  var tail = grid.get(PosToText(tailTile.i, tailTile.j));
-  start.setGH(0, start.getDistance(targetPos));
-  start.connection = null;
-  openList.push(start);
-  var loopExit = 999;
-  var isReachEnd = false;
-  var result = [];
-
-  while (openList.length > 0 && loopExit-- > 0) {
-    var current = openList[0];
-    // if (!isReachEnd && !isTail) tail = _getNextTail(tail);
-    var maxF = 0;
-    for (let i = 1; i < openList.length; i++) {
-      if (isTail) {
-        if (openList[i].f > maxF) {
-          current = openList[i];
-          maxF = openList[i].f;
-        }
-      }
-      else if (openList[i].f < current.f || openList[i].f === current.f && openList[i].h < current.h) {
-        current = openList[i];
-      }
-    }
-    openList = openList.filter(tile => tile !== current);
-    closedList.push(current);
-
-    if (current === end) {
-      if (debugged) console.log('reach end')
-      var temp = current;
-      while (temp.connection) {
-        result.unshift(temp);
-        temp = temp.connection;
-        if (!isTail) tail = _getNextTail(tail);
-      }
-      isReachEnd = true;
-      openList = [];
-    }
-    if (isReachEnd && (!tail || current === tail)) {
-      if (debugged) console.log('found')
-      // if (isTail) return result.slice(0, 1);
-      return result;
-    }
-    if (isReachEnd) targetPos = TextToPos(tail.pos);
-
-    var currentPos = TextToPos(current.pos);
-    var neighborsPos = [
-      { i: currentPos.i + 1, j: currentPos.j },
-      { i: currentPos.i, j: currentPos.j + 1 },
-      { i: currentPos.i - 1, j: currentPos.j + 1 },
-      { i: currentPos.i - 1, j: currentPos.j },
-      { i: currentPos.i, j: currentPos.j - 1 },
-      { i: currentPos.i + 1, j: currentPos.j - 1 },
-    ];
-    neighborsPos.forEach(pos => {
-      var tile = grid.get(PosToText(pos.i, pos.j));
-      if (tile && closedList.includes(tile)) return;
-      if (tile && (tile.state <= state.EMPTY || tile.decay - current.g < 0)) {
-        var g = current.g + 1;
-        var h = tile.getDistance(targetPos);
-        if (!openList.includes(tile) || g < tile.g) {
-          tile.setGH(g, h);
-          tile.connection = current;
-          if (!openList.includes(tile)) openList.push(tile);
-        }
-      }
-    });
-  }
-  if (debugged) {
-    if (loopExit <= 0) console.error('timeout');
-    else console.error('no path', tail);
-  }
-  if (isTail) {
-    isBotEnabled = false;
-    return [];
-  }
-  return findPath(tailTile, true);
-
-  function _getNextTail(tail) {
-    if (!tail || tail.state === state.EMPTY || tail.linkDir < 0) return;
-    var { i, j } = TextToPos(tail.pos);
-    var pos = dirToPos(tail.linkDir);
-    i += pos.i;
-    j += pos.j;
-    return grid.get(PosToText(i, j));
-  }
-}
-
 
 init();
