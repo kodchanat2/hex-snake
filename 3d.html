@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SNAKE 3D</title>
+  <meta name="theme-color" content="#749D4E">
+  <link rel='icon' href='./favicon.ico'>
+  <style>
+    :root {
+      --bg-top: #749D4E;
+      --bg-bottom: #869955;
+      --ink: #081905;
+      --panel: rgba(8, 25, 5, 0.12);
+      --button: #749D4E;
+      --button-active: #481905;
+      --font: "comic sans ms", "Comic Sans MS", cursive;
+    }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+      color: var(--ink);
+      font-family: var(--font);
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    canvas { display: block; }
+
+    .hud {
+      position: fixed;
+      top: 12px;
+      left: 16px;
+      pointer-events: none;
+    }
+    .hud .best { font-size: 14px; }
+    .hud .score { font-size: 32px; line-height: 1.1; }
+    .hud .completion { font-size: 18px; opacity: 0.75; }
+
+    .message {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      text-align: center;
+      font-size: 22px;
+    }
+    .message[hidden] { display: none; }
+    .message strong { display: block; font-size: 40px; }
+
+    .keys {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      font-size: 12px;
+      text-align: right;
+      line-height: 1.5;
+      opacity: 0.8;
+      pointer-events: none;
+    }
+
+    .pad {
+      position: fixed;
+      bottom: 12px;
+      right: 16px;
+      display: grid;
+      grid-template-columns: repeat(3, 40px) 16px 40px;
+      grid-template-rows: repeat(3, 40px);
+      gap: 4px;
+      opacity: 0.85;
+    }
+    .pad button {
+      font: inherit;
+      font-size: 16px;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+      touch-action: manipulation;
+    }
+    .pad button:active { background: var(--button-active); color: white; }
+    .pad button:focus-visible { outline: 3px solid var(--button-active); outline-offset: 2px; }
+    .pad .forward { grid-area: 1 / 2; }
+    .pad .left { grid-area: 2 / 1; }
+    .pad .back { grid-area: 3 / 2; }
+    .pad .right { grid-area: 2 / 3; }
+    .pad .up { grid-area: 1 / 5; }
+    .pad .down { grid-area: 3 / 5; }
+    .pad .restart { grid-area: 2 / 2; font-size: 14px; }
+
+    .botbar {                              /* bottom left; the direction pad sits bottom right */
+      position: fixed;
+      bottom: 12px;
+      left: 16px;
+      display: flex;
+      flex-direction: column-reverse;      /* buttons at the bottom, the status line above them */
+      align-items: flex-start;
+      gap: 6px;
+      max-width: calc(100vw - 230px);
+    }
+    .botbar .row { display: flex; gap: 6px; }
+    .botbar button {
+      font: inherit;
+      font-size: 12px;
+      min-width: 34px;
+      height: 26px;
+      padding: 0 7px;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+    }
+    .botbar button[aria-pressed="true"] { background: var(--button-active); color: white; }
+    .botbar button:focus-visible { outline: 3px solid var(--button-active); outline-offset: 2px; }
+    .botbar .status { font-size: 12px; min-height: 1em; line-height: 1.3; }
+
+    @media (max-width: 699px) {
+      .keys { display: none; }
+    }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
+  </script>
+</head>
+
+<body>
+  <div class="hud">
+    <div class="best">highscore: <span id="best">0</span></div>
+    <div class="score">score: <span id="score">0</span> <span class="completion" id="completion">(0.0%)</span></div>
+  </div>
+  <div class="keys">
+    W A S D: forward · left · back · right<br>
+    Q / E: down / up · P: pause · R: restart<br>
+    drag to turn the camera · steering turns the bot off
+  </div>
+  <div class="message" id="message" hidden></div>
+  <div class="botbar" aria-label="Bot">
+    <div class="row">
+      <button data-bot="astar" aria-pressed="false">A*</button>
+      <button data-bot="hamilton" aria-pressed="false">Hamilton</button>
+    </div>
+    <div class="row">
+      <button data-speed="1" aria-pressed="true">x1</button>
+      <button data-speed="5" aria-pressed="false">x5</button>
+      <button data-speed="10" aria-pressed="false">x10</button>
+    </div>
+    <div class="row">
+      <button id="debugButton" aria-pressed="false">Debug</button>
+    </div>
+    <div class="status" id="botStatus"></div>
+  </div>
+  <div class="pad" aria-label="Snake controls">
+    <button class="forward" data-move="forward" aria-label="Forward">▲</button>
+    <button class="left" data-move="left" aria-label="Left">◀</button>
+    <button class="right" data-move="right" aria-label="Right">▶</button>
+    <button class="back" data-move="back" aria-label="Back">▼</button>
+    <button class="restart" data-move="restart" aria-label="Restart">↻</button>
+    <button class="up" data-move="up" aria-label="Up">⤒</button>
+    <button class="down" data-move="down" aria-label="Down">⤓</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { createBots } from './snake3d-bot.js';
+    import { createDebug } from './snake3d-debug.js';
+
+    /*========== Config ==========*/
+    const SIZE = 16;                       // 16 × 16 × 16 cells (must be even: the Hamiltonian cycle needs it)
+    const TICK_MS = 220;                   // one move per tick
+    const START_LENGTH = 3;
+    const COLORS = { body: 0xf2f2ea, head: 0x544f08, food: 0xff9a3c, edge: 0x081905, blockEdge: 0x8a8a8a, headEdge: 0xfff2a0, fed: 0xff9a3c, fog: 0x7d9a52 };
+    const BEST_KEY = `snake3d-best-${SIZE}`;
+
+    /*========== Game state (pure logic, no rendering) ==========*/
+    const key = c => `${c.x},${c.y},${c.z}`;
+    const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+    const inside = c => [c.x, c.y, c.z].every(v => v >= 0 && v < SIZE);
+    const opposite = (a, b) => a.x === -b.x && a.y === -b.y && a.z === -b.z;
+
+    function newGame() {
+      const mid = Math.floor(SIZE / 2);
+      const snake = Array.from({ length: START_LENGTH }, (_, k) => ({ x: mid - k, y: mid, z: mid }));
+      return { snake, prev: snake.map(c => ({ ...c })), fed: [], tailFed: false, eaten: null, dir: { x: 1, y: 0, z: 0 }, queue: [], food: null, score: 0, over: false, won: false, paused: false };
+    }
+
+    function placeFood(game) {
+      const used = new Set(game.snake.map(key));
+      const free = [];
+      for (let x = 0; x < SIZE; x++) for (let y = 0; y < SIZE; y++) for (let z = 0; z < SIZE; z++) {
+        if (!used.has(`${x},${y},${z}`)) free.push({ x, y, z });
+      }
+      return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+    }
+
+    // One move. Moving into the tile the tail is leaving is allowed (it moves away on the same tick).
+    function step(game) {
+      if (game.over || game.paused) return game;
+      const queued = game.queue.find(d => !opposite(d, game.dir));
+      const dir = queued || game.dir;
+      const queue = queued ? game.queue.slice(game.queue.indexOf(queued) + 1) : [];
+      const head = add(game.snake[0], dir);
+      const eats = game.food && key(head) === key(game.food);
+      const body = eats ? game.snake : game.snake.slice(0, -1);
+      const prev = game.snake.map(c => ({ ...c }));
+      if (!inside(head) || body.some(c => key(c) === key(head))) {
+        return { ...game, dir, queue: [], prev, eaten: null, over: true };
+      }
+      const snake = [head, ...body];
+      // fed = body cells holding a fruit that was eaten; the mark rides along until the tail passes the cell
+      const onBody = new Set(snake.map(key));
+      const tailKey = key(game.snake[game.snake.length - 1]);
+      const fed = (eats ? [...game.fed, key(head)] : game.fed).filter(k => onBody.has(k));
+      const tailFed = !eats && game.fed.includes(tailKey);
+      const eaten = eats ? game.food : null;                          // drawn shrinking into the head this move
+      const next = { ...game, snake, prev, fed, tailFed, eaten, dir, queue, score: game.score + (eats ? 1 : 0) };
+      if (eats) {
+        next.food = placeFood(next);
+        if (!next.food) return { ...next, over: true, won: true };
+      }
+      return next;
+    }
+
+    /*========== Scene ==========*/
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.shadowMap.enabled = true;                       // blocks shade each other and the floor: depth cue
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.prepend(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(COLORS.fog, 20, 60);              // near / far set by fitCamera()
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    // Keep the whole arena in view: back off until it fits the narrower side; on tall (phone) screens aim
+    // lower so the arena sits above the button pad.
+    const VIEW_DIR = new THREE.Vector3(14, 15, 19).normalize();
+    function fitCamera() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
+      const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+      const radius = SIZE * 0.9;                                    // ~ the arena's bounding sphere seen from the corner
+      const dist = radius / Math.sin(Math.min(vHalf, hHalf));
+      const tall = camera.aspect < 0.8;
+      controls.target.set(0, tall ? -SIZE * 0.45 : -1, 0);
+      camera.position.copy(VIEW_DIR).multiplyScalar(dist).add(controls.target);
+      scene.fog.near = dist - SIZE * 0.4;                         // faint fog: far blocks a little paler
+      scene.fog.far = dist + SIZE * 1.6;
+      camera.updateProjectionMatrix();
+    }
+    fitCamera();
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.minDistance = 12;
+    controls.maxDistance = 90;
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x445522, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+    sun.position.set(SIZE * 0.6, SIZE * 1.8, SIZE * 0.8);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const shadowHalf = SIZE * 0.9;
+    Object.assign(sun.shadow.camera, { left: -shadowHalf, right: shadowHalf, top: shadowHalf, bottom: -shadowHalf, near: 1, far: SIZE * 5 });
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+    scene.add(sun);
+
+    // cell (0..9) → world position, the arena centred on the origin
+    const half = SIZE / 2;
+    const toWorld = c => new THREE.Vector3(c.x - half + 0.5, c.y - half + 0.5, c.z - half + 0.5);
+
+    // arena: box edges + a floor grid
+    const box = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(SIZE, SIZE, SIZE)),
+      new THREE.LineBasicMaterial({ color: COLORS.edge, transparent: true, opacity: 0.55 }));
+    scene.add(box);
+    // a faint lattice through the whole volume: every cell boundary in x, y and z
+    const lattice = [];
+    for (let i = 0; i <= SIZE; i++) for (let j = 0; j <= SIZE; j++) {
+      const u = i - half, v = j - half;
+      lattice.push(-half, u, v, half, u, v);     // lines along x
+      lattice.push(u, -half, v, u, half, v);     // along y
+      lattice.push(u, v, -half, u, v, half);     // along z
+    }
+    const latticeGeo = new THREE.BufferGeometry();
+    latticeGeo.setAttribute('position', new THREE.Float32BufferAttribute(lattice, 3));
+    scene.add(new THREE.LineSegments(latticeGeo, new THREE.LineBasicMaterial({ color: COLORS.edge, transparent: true, opacity: 0.07, depthWrite: false })));
+
+    const cubeGeo = new THREE.BoxGeometry(0.86, 0.86, 0.86);     // = BLOCK
+    // the body is see-through (its outlines stay solid) so a long, coiled snake can be read from inside;
+    // the head stays solid
+    const bodyMat = new THREE.MeshStandardMaterial({ color: COLORS.body, roughness: 0.6, transparent: true, opacity: 0.42, depthWrite: false });
+    const headMat = new THREE.MeshStandardMaterial({ color: COLORS.head, roughness: 0.5 });
+    const headFedMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(COLORS.head).lerp(new THREE.Color(COLORS.fed), 0.65), roughness: 0.5 });
+    const HEAD_GULP = 0.18;                // the head swells by this much at the bite, then settles over the move
+    // Every block carries its own light outline so it reads in mid-air, not only as a dark silhouette.
+    const edgeGeo = new THREE.EdgesGeometry(cubeGeo);
+    const bodyEdgeMat = new THREE.LineBasicMaterial({ color: COLORS.blockEdge, transparent: true, opacity: 0.7 });   // grey, not dark
+    // a segment that swallowed a fruit: see-through orange and a little bigger, like the hex game's fed tile
+    const fedMat = new THREE.MeshStandardMaterial({ color: COLORS.fed, roughness: 0.5, transparent: true, opacity: 0.55, depthWrite: false });
+    const FED_SCALE = 1.1;
+    const headEdgeMat = new THREE.LineBasicMaterial({ color: COLORS.headEdge });
+    const BLOCK = 0.86;                    // block size inside its 1 × 1 × 1 cell
+    const segments = [];                   // pooled meshes, one per body cell
+    const segmentMesh = k => {
+      while (segments.length <= k) {
+        const m = new THREE.Mesh(cubeGeo, bodyMat);
+        m.castShadow = m.receiveShadow = true;
+        m.add(new THREE.LineSegments(edgeGeo, bodyEdgeMat));
+        scene.add(m); segments.push(m);
+      }
+      return segments[k];
+    };
+
+    const food = new THREE.Mesh(new THREE.SphereGeometry(0.38, 24, 16), new THREE.MeshStandardMaterial({ color: COLORS.food, roughness: 0.3, emissive: 0x552200 }));
+    food.castShadow = true;
+    scene.add(food);
+    // the floor only catches shadows (transparent otherwise)
+    const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.ShadowMaterial({ opacity: 0.28 }));
+    shadowFloor.rotation.x = -Math.PI / 2;
+    shadowFloor.position.y = -half + 0.001;
+    shadowFloor.receiveShadow = true;
+    scene.add(shadowFloor);
+    // the food's cell drawn as a faint cube, so its position in the grid is readable
+    const foodCell = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+      new THREE.LineBasicMaterial({ color: COLORS.food, transparent: true, opacity: 0.6 }));
+    scene.add(foodCell);
+    const eatenFood = food.clone();                     // the fruit being swallowed, shrinking inside the head
+    eatenFood.castShadow = false;
+    scene.add(eatenFood);
+
+
+    /*========== Controls ==========*/
+    // Forward / back / left / right follow the camera (snapped to the nearest axis), up / down stay world Y.
+    function cameraAxes() {
+      const f = new THREE.Vector3();
+      camera.getWorldDirection(f);
+      const forward = Math.abs(f.x) > Math.abs(f.z) ? { x: Math.sign(f.x), y: 0, z: 0 } : { x: 0, y: 0, z: Math.sign(f.z) };
+      const right = { x: -forward.z, y: 0, z: forward.x };
+      return { forward, right };
+    }
+    function turn(move) {
+      if (move === 'restart') return restart();
+      if (game.over) return;
+      setBot(null);                                        // steering by hand turns the bot off
+      const { forward, right } = cameraAxes();
+      const neg = d => ({ x: -d.x, y: -d.y, z: -d.z });
+      const dir = { forward, back: neg(forward), right, left: neg(right), up: { x: 0, y: 1, z: 0 }, down: { x: 0, y: -1, z: 0 } }[move];
+      if (dir) game = { ...game, queue: [...game.queue, dir].slice(-3) };
+    }
+    const KEYS = { KeyW: 'forward', ArrowUp: 'forward', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', KeyE: 'up', KeyQ: 'down', KeyR: 'restart' };
+    window.addEventListener('keydown', e => {
+      if (e.code === 'KeyP') { game = { ...game, paused: !game.paused }; showMessage(); return; }
+      if (KEYS[e.code]) { e.preventDefault(); turn(KEYS[e.code]); }
+    });
+    document.querySelectorAll('.pad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); turn(b.dataset.move); }));
+
+    /*========== Bots ==========*/
+    const bots = createBots(SIZE);
+    const statusEl = document.getElementById('botStatus');
+    let botMode = null, botSpeed = 1, lastMove = null;
+    const debug = createDebug(scene, toWorld, SIZE);
+    const debugButton = document.getElementById('debugButton');
+    debugButton.addEventListener('click', () => {
+      debug.visible = !debug.visible;
+      debugButton.setAttribute('aria-pressed', String(debug.visible));
+    });
+    const tickMs = () => TICK_MS / (botMode ? botSpeed : 1);   // x1 = the pace of a person playing
+    function setBot(mode) {
+      botMode = mode;
+      if (!mode) { statusEl.textContent = ''; lastMove = null; }
+      document.querySelectorAll('[data-bot]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.bot === mode)));
+    }
+    document.querySelectorAll('[data-bot]').forEach(b => b.addEventListener('click', () => { setBot(b.dataset.bot); bots.reset(); }));
+    document.querySelectorAll('[data-speed]').forEach(b => b.addEventListener('click', () => {
+      botSpeed = Number(b.dataset.speed);
+      document.querySelectorAll('[data-speed]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+
+    /*========== Loop ==========*/
+    const completionEl = document.getElementById('completion');
+    const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), messageEl = document.getElementById('message');
+    let best = 0;
+    try { best = Number(localStorage.getItem(BEST_KEY)) || 0; } catch (err) { best = 0; }
+    bestEl.textContent = best;
+
+    let game, lastTick = 0;
+    function restart() {
+      bots.reset();
+      game = newGame();
+      game.food = placeFood(game);
+      lastTick = performance.now();
+      showMessage();
+    }
+    function showMessage() {
+      const text = game.won ? '<strong>You win!</strong>tap ↻ or press R'
+        : game.over ? '<strong>Game over</strong>tap ↻ or press R'
+        : game.paused ? '<strong>Paused</strong>press P' : '';
+      messageEl.innerHTML = text;
+      messageEl.hidden = !text;
+    }
+    function saveBest() {
+      if (game.score <= best) return;
+      best = game.score;
+      bestEl.textContent = best;
+      try { localStorage.setItem(BEST_KEY, String(best)); } catch (err) { /* storage unavailable: keep it for this visit */ }
+    }
+
+    // Stretch a block inside `cell` along `d` (a unit axis vector) to `len`, anchored on the face at `face`
+    // (+1: the face toward +d, −1: toward −d). len = BLOCK is the whole block.
+    function stretch(m, cell, d, len, face) {
+      const c = toWorld(cell);
+      const shift = face * (BLOCK - len) / 2;
+      m.position.set(c.x + d.x * shift, c.y + d.y * shift, c.z + d.z * shift);
+      const k = Math.max(len / BLOCK, 0.001);
+      m.scale.set(d.x ? k : 1, d.y ? k : 1, d.z ? k : 1);
+    }
+    // A body segment is not a symmetric cube: it stretches across the gap toward the next segment (the one
+    // nearer the head), like the bump on each tile of the hex game, so the shapes show which way the body runs.
+    const GAP = 1 - BLOCK;
+    function extendToward(m, cell, nextCell, girth = 1) {
+      const d = { x: nextCell.x - cell.x, y: nextCell.y - cell.y, z: nextCell.z - cell.z };
+      const c = toWorld(cell), shift = GAP / 2;
+      m.position.set(c.x + d.x * shift, c.y + d.y * shift, c.z + d.z * shift);
+      const along = (BLOCK + GAP) / BLOCK;
+      m.scale.set(d.x ? along : girth, d.y ? along : girth, d.z ? along : girth);
+    }
+    const tailMesh = segmentMesh(0).clone();               // the block the tail is leaving
+    scene.add(tailMesh);
+
+    // No sliding: the head grows into its new cell from the face it entered through, the tail shrinks toward
+    // the next tail cell, every other block stays still.
+    function draw(t) {
+      const a = game.over ? 1 : Math.min(1, (t - lastTick) / tickMs());
+      const { snake, prev } = game;
+      const fed = new Set(game.fed);
+      const isFed = (c, k) => k > 0 && fed.has(key(c));
+      snake.forEach((c, k) => {
+        const m = segmentMesh(k);
+        m.visible = true;
+        m.material = k === 0 ? (fed.has(key(c)) ? headFedMat : headMat) : isFed(c, k) ? fedMat : bodyMat;
+        m.children[0].material = k === 0 ? headEdgeMat : bodyEdgeMat;
+        m.position.copy(toWorld(c));
+        m.scale.setScalar(isFed(c, k) ? FED_SCALE : 1);
+        if (k > 0) extendToward(m, c, snake[k - 1], isFed(c, k) ? FED_SCALE : 1);
+      });
+      for (let k = snake.length; k < segments.length; k++) segments[k].visible = false;
+      const moved = prev.length && (prev[0].x !== snake[0].x || prev[0].y !== snake[0].y || prev[0].z !== snake[0].z);
+      if (moved) {
+        const d = { x: snake[0].x - prev[0].x, y: snake[0].y - prev[0].y, z: snake[0].z - prev[0].z };
+        stretch(segments[0], snake[0], d, BLOCK * a, -1);              // grows out of the face it came through
+      }
+      if (game.eaten) segments[0].scale.multiplyScalar(1 + HEAD_GULP * Math.sin(Math.PI * Math.min(1, a * 1.3)));
+      const leaving = moved && snake.length === prev.length ? prev[prev.length - 1] : null;
+      tailMesh.visible = !!leaving && a < 1;
+      tailMesh.material = game.tailFed ? fedMat : bodyMat;
+      if (tailMesh.visible) {
+        const to = snake[snake.length - 1];
+        const d = { x: to.x - leaving.x, y: to.y - leaving.y, z: to.z - leaving.z };
+        // shrinks toward the next tail cell, its far end staying on that cell's face (it keeps its extension)
+        const len = Math.max((BLOCK + GAP) * (1 - a), 0.001), w = toWorld(leaving);
+        const front = BLOCK / 2 + GAP;
+        tailMesh.position.set(w.x + d.x * (front - len / 2), w.y + d.y * (front - len / 2), w.z + d.z * (front - len / 2));
+        const k = len / BLOCK;
+        tailMesh.scale.set(d.x ? k : 1, d.y ? k : 1, d.z ? k : 1);
+      }
+      food.visible = foodCell.visible = !!game.food;
+      eatenFood.visible = !!game.eaten && a < 1;
+      if (eatenFood.visible) {
+        eatenFood.position.copy(toWorld(game.eaten));
+        eatenFood.scale.setScalar(Math.max(1 - a, 0.001) * 0.9);
+      }
+      if (game.food) {
+        food.position.copy(toWorld(game.food));
+        foodCell.position.copy(food.position);
+        const growIn = game.eaten ? 1 - Math.pow(1 - a, 3) : 1;           // a new fruit grows in, it doesn't pop up
+        food.scale.setScalar(growIn * (1 + 0.08 * Math.sin(t / 180)));
+        foodCell.scale.setScalar(Math.max(growIn, 0.001));
+      }
+      scoreEl.textContent = game.score;
+      // share of the board the snake can still fill that it has filled
+      completionEl.textContent = `(${(100 * game.score / (SIZE ** 3 - START_LENGTH)).toFixed(1)}%)`;
+    }
+
+    function frame(t) {
+      requestAnimationFrame(frame);
+      if (!game.over && !game.paused && t - lastTick >= tickMs()) {
+        lastTick = t;
+        if (botMode) {
+          const move = bots.move(botMode, game);
+          lastMove = move;
+          game = { ...game, queue: [move.dir] };
+          statusEl.textContent = 'now: ' + move.driver;
+        }
+        game = step(game);
+        if (game.over) { saveBest(); showMessage(); }
+      }
+      draw(t);
+      debug.update(game, botMode ? lastMove : null, bots.debugInfo());
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      fitCamera();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    restart();
+    requestAnimationFrame(frame);
+    window.snake3d = {                                     // for testing
+      get game() { return game; }, step: () => { game = step(game); return game; }, turn, get botMode() { return botMode; },
+      get headScale() { return segments[0].scale.toArray(); }, get tailScale() { return tailMesh.visible ? tailMesh.scale.toArray() : null; },
+      get eatView() { return { head: segments[0].scale.toArray().map(v => +v.toFixed(2)), headMat: segments[0].material === headFedMat ? 'orange' : 'normal', eaten: eatenFood.visible ? +eatenFood.scale.x.toFixed(2) : null, food: +food.scale.x.toFixed(2) }; },
+      get fedSegments() { return segments.filter(m => m.visible && m.material === fedMat).length; },
+      botTicks(n) { for (let k = 0; k < n && !game.over && botMode; k++) { lastMove = bots.move(botMode, game); game = step({ ...game, queue: [lastMove.dir] }); } statusEl.textContent = lastMove ? 'now: ' + lastMove.driver : ''; return game; },
+    };
+  </script>
+</body>
+
+</html>
