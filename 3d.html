@@ -54,9 +54,25 @@
     .message[hidden] { display: none; }
     .message strong { display: block; font-size: 40px; }
 
+    .hex-link {                            /* link back to the hex game, top right */
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 10px;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 14px;
+      text-decoration: none;
+    }
+    .hex-link:hover, .hex-link:focus-visible { background: var(--button-active); color: white; outline: none; }
     .keys {
       position: fixed;
-      top: 14px;
+      top: 52px;
       right: 16px;
       font-size: 12px;
       text-align: right;
@@ -137,6 +153,7 @@
     <div class="best">highscore: <span id="best">0</span></div>
     <div class="score">score: <span id="score">0</span> <span class="completion" id="completion">(0.0%)</span></div>
   </div>
+  <a class="hex-link" href="./index.html" aria-label="Back to the hex game">⬡ Hex</a>
   <div class="keys">
     W A S D: forward · left · back · right<br>
     Q / E: down / up · P: pause · R: restart<br>
@@ -414,6 +431,9 @@
       bestEl.textContent = best;
       try { localStorage.setItem(BEST_KEY, String(best)); } catch (err) { /* storage unavailable: keep it for this visit */ }
     }
+    // leaving mid-game (the ⬡ Hex link, closing the tab, going back) keeps the best score too
+    document.querySelector('.hex-link').addEventListener('click', saveBest);
+    window.addEventListener('pagehide', saveBest);
 
     // Stretch a block inside `cell` along `d` (a unit axis vector) to `len`, anchored on the face at `face`
     // (+1: the face toward +d, −1: toward −d). len = BLOCK is the whole block.
