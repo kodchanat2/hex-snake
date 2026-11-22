@@ -7,6 +7,10 @@
   <title>SNAKE 3D</title>
   <meta name="theme-color" content="#749D4E">
   <link rel='icon' href='./favicon.ico'>
+  <!-- shared game font: Comic Sans where installed, Comic Neue (same look, OFL) everywhere else -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap">
   <style>
     :root {
       --bg-top: #749D4E;
@@ -15,7 +19,7 @@
       --panel: rgba(8, 25, 5, 0.12);
       --button: #749D4E;
       --button-active: #481905;
-      --font: "comic sans ms", "Comic Sans MS", cursive;
+      --font: "Comic Sans MS", "Comic Neue", sans-serif;   /* same stack as the hex game */
     }
 
     html, body {
@@ -176,10 +180,10 @@
     <div class="status" id="botStatus"></div>
   </div>
   <div class="pad" aria-label="Snake controls">
-    <button class="forward" data-move="forward" aria-label="Forward">▲</button>
-    <button class="left" data-move="left" aria-label="Left">◀</button>
-    <button class="right" data-move="right" aria-label="Right">▶</button>
-    <button class="back" data-move="back" aria-label="Back">▼</button>
+    <button class="forward" data-move="forward" aria-label="Forward">^</button>
+    <button class="left" data-move="left" aria-label="Left">&lt;</button>
+    <button class="right" data-move="right" aria-label="Right">&gt;</button>
+    <button class="back" data-move="back" aria-label="Back">v</button>
     <button class="restart" data-move="restart" aria-label="Restart">↻</button>
     <button class="up" data-move="up" aria-label="Up">⤒</button>
     <button class="down" data-move="down" aria-label="Down">⤓</button>
