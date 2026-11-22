@@ -71,7 +71,9 @@ function init() {
   setInterval(update, 1000 / FPS);
 }
 
-setFontSize = (size = 7) => ctx.font = screen_scale * size + "px comic sans ms";
+// same font stack as 3d.html: Comic Sans where installed, otherwise Comic Neue (loaded in index.html)
+const GAME_FONT = '"Comic Sans MS", "Comic Neue", sans-serif';
+setFontSize = (size = 7) => ctx.font = screen_scale * size + "px " + GAME_FONT;
 
 async function touch(e) {
   if (!e) return;
