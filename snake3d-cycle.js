@@ -1,7 +1,8 @@
 /*========== 3D snake: Hamiltonian cycles ==========*/
-// buildCycle(): a fixed cycle through all N³ cells (N even): a 2D cycle on x,y — rows boustrophedon over
-// x = 1..N-1, back down column x = 0 — run through the z layers alternately, minus its cell (0,0), whose
-// column then carries the cycle from the top layer back to the bottom one.
+// buildCycle(): a fixed cycle through all cells: a 2D cycle on the floor plane (x, z) — rows z boustrophedon
+// over x = 1..X-1, back along column x = 0 — run through the y layers alternately, minus its cell (0,0),
+// whose vertical column then carries the cycle from the top layer back to the bottom one.
+// Needs an even number of rows (dims.z) and of layers (dims.y), e.g. 10 × 10 × 10 or 16 × 4 × 16.
 //
 // repairCycle(snake): a cycle that contains the body (tail → head) as one unbroken stretch, so the cycle bot
 // can take over mid-game. The cube grid has no triangles, so free cells join the loop in pairs around a
@@ -12,20 +13,21 @@ const MAX_CLUSTER = 8, MAX_SEGMENT = 14;
 const REPAIR_BUDGET_MS = 0;            // extra randomized restarts within this budget (0 = one attempt: each costs ~50-150 ms)
 
 export function makeCycles(G) {
-  const { N, CELLS, id, cellOf, neighbors, touches } = G;
+  const { dims, CELLS, id, cellOf, neighbors, touches } = G;
 
   function buildCycle() {
-    const flat = [];
-    for (let y = 0; y < N; y++) {
+    if (dims.z % 2 || dims.y % 2) throw new Error(`buildCycle needs an even depth and height, got ${dims.x}×${dims.y}×${dims.z}`);
+    const flat = [];                                           // 2D cycle on (x, z)
+    for (let z = 0; z < dims.z; z++) {
       const row = [];
-      for (let x = 1; x < N; x++) row.push({ x, y });
-      flat.push(...(y % 2 ? row.reverse() : row));
+      for (let x = 1; x < dims.x; x++) row.push({ x, z });
+      flat.push(...(z % 2 ? row.reverse() : row));
     }
-    for (let y = N - 1; y >= 0; y--) flat.push({ x: 0, y });
+    for (let z = dims.z - 1; z >= 0; z--) flat.push({ x: 0, z });
     const c0 = flat.pop();
     const cells = [];
-    for (let z = 0; z < N; z++) (z % 2 ? [...flat].reverse() : flat).forEach(c => cells.push({ x: c.x, y: c.y, z }));
-    for (let z = N - 1; z >= 0; z--) cells.push({ x: c0.x, y: c0.y, z });
+    for (let y = 0; y < dims.y; y++) (y % 2 ? [...flat].reverse() : flat).forEach(c => cells.push({ x: c.x, y, z: c.z }));
+    for (let y = dims.y - 1; y >= 0; y--) cells.push({ x: c0.x, y, z: c0.z });
     return cells;
   }
 
